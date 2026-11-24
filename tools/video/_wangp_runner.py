@@ -1,0 +1,142 @@
+"""Helpers for driving a local WanGP (Wan2GP) install in headless mode.
+
+WanGP is run as its own process with its own Python environment:
+
+    <python> wgp.py --process <job.json> --output-dir <dir>      (cwd = WANGP_DIR)
+
+so OpenMontage never imports torch or WanGP code. Configuration comes from the
+environment (``.env`` is loaded by the tool registry):
+
+    WANGP_DIR     WanGP folder containing wgp.py (default: ~/WanGP)
+    WANGP_PYTHON  optional; otherwise env_uv / env_venv / venv / .venv / env is detected
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
+ENV_FOLDERS = ("env_uv", "env_venv", "venv", ".venv", "env")
+OOM_PATTERN = re.compile(r"out of memory|CUDA error|OutOfMemory", re.IGNORECASE)
+
+
+def _env_python(env_dir: Path) -> Path:
+    if os.name == "nt":
+        return env_dir / "Scripts" / "python.exe"
+    return env_dir / "bin" / "python"
+
+
+def resolve_wangp() -> tuple[Path | None, str | None, str]:
+    """Return ``(wangp_dir, python, reason)``; ``reason`` is empty when usable."""
+    wangp_dir = Path(os.environ.get("WANGP_DIR") or Path.home() / "WanGP").expanduser()
+    if not (wangp_dir / "wgp.py").is_file():
+        return None, None, (
+            f"WanGP not found: {wangp_dir / 'wgp.py'} does not exist. Install WanGP "
+            "(https://github.com/deepbeepmeep/Wan2GP) and set WANGP_DIR in .env."
+        )
+    python = os.environ.get("WANGP_PYTHON")
+    if python:
+        if not Path(python).is_file():
+            return None, None, f"WANGP_PYTHON points to a missing file: {python}"
+        return wangp_dir, python, ""
+    for name in ENV_FOLDERS:
+        exe = _env_python(wangp_dir / name)
+        if exe.is_file():
+            return wangp_dir, str(exe), ""
+    return None, None, (
+        f"No WanGP Python environment found in {wangp_dir} "
+        f"(looked for {', '.join(ENV_FOLDERS)}). Set WANGP_PYTHON in .env."
+    )
+
+
+def snap_frames(n: int) -> int:
+    """Wan clip lengths are 4n+1 frames; round up, minimum 5."""
+    n = max(5, int(n))
+    return n if (n - 1) % 4 == 0 else ((n - 1) // 4 + 1) * 4 + 1
+
+
+def build_job(
+    prompt: str,
+    negative_prompt: str,
+    *,
+    model_type: str,
+    resolution: str,
+    frames: int,
+    steps: int,
+    seed: int,
+    guidance_scale: float | None = None,
+    image_start: Path | str | None = None,
+) -> dict[str, Any]:
+    job: dict[str, Any] = {
+        "model_type": model_type,
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "resolution": resolution,
+        "video_length": snap_frames(frames),
+        "num_inference_steps": int(steps),
+        "seed": int(seed),
+    }
+    if guidance_scale is not None:
+        job["guidance_scale"] = guidance_scale
+    if image_start is not None:
+        job["image_prompt_type"] = "S"
+        job["image_start"] = str(Path(image_start).resolve())
+    return job
+
+
+def run_wangp(python: str, wangp_dir: Path, job: dict, work_dir: Path, timeout_s: int) -> tuple[Path | None, str]:
+    """Run one WanGP job; return the newest mp4 it wrote (or None) and the log text."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    job_path = work_dir / "job.json"
+    job_path.write_text(json.dumps(job, indent=2), encoding="utf-8")
+    log_path = work_dir / "wangp.log"
+    before = {p.resolve() for p in work_dir.glob("*.mp4")}
+    cmd = [python, "wgp.py", "--process", str(job_path), "--output-dir", str(work_dir)]
+    try:
+        with open(log_path, "w", encoding="utf-8", errors="replace") as log:
+            subprocess.run(cmd, cwd=str(wangp_dir), stdout=log, stderr=subprocess.STDOUT,
+                           timeout=timeout_s, check=False)
+    except subprocess.TimeoutExpired:
+        with open(log_path, "a", encoding="utf-8") as log:
+            log.write(f"\n[wangp_video] timed out after {timeout_s}s\n")
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    new = [p for p in work_dir.glob("*.mp4") if p.resolve() not in before]
+    clip = max(new, key=lambda p: p.stat().st_mtime) if new else None
+    return clip, text
+
+
+def probe_clip(path: Path) -> dict[str, Any]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+         "stream=width,height,r_frame_rate:format=duration", "-of", "json", str(path)],
+        capture_output=True, text=True, check=True, timeout=60,
+    )
+    data = json.loads(out.stdout)
+    stream = data["streams"][0]
+    num, den = stream["r_frame_rate"].split("/")
+    return {
+        "width": int(stream["width"]),
+        "height": int(stream["height"]),
+        "fps": round(int(num) / max(int(den), 1), 3),
+        "duration": round(float(data["format"]["duration"]), 3),
+    }
+
+
+def motion_score(path: Path) -> tuple[float, float]:
+    """Mean absolute luma change between consecutive frames (0-255) and share of frozen frames."""
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "info", "-i", str(path), "-vf",
+         "scale=320:-2,format=gray,tblend=all_mode=difference,signalstats,"
+         "metadata=print:key=lavfi.signalstats.YAVG",
+         "-f", "null", "-"],
+        capture_output=True, text=True, timeout=600,
+    )
+    values = [float(v) for v in re.findall(r"lavfi\.signalstats\.YAVG=([\d.]+)", proc.stderr)]
+    if not values:
+        return 0.0, 1.0
+    frozen = sum(v < 0.15 for v in values) / len(values)
+    return round(sum(values) / len(values), 3), round(frozen, 3)
