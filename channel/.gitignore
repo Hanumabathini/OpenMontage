@@ -1,0 +1,8 @@
+# rendered media, logs and secrets stay local
+*.mp4
+*.wav
+*.flac
+production/logs/*
+!production/logs/.gitkeep
+config/*.secret*
+.env

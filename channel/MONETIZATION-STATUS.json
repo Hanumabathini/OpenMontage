@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "collected_at": "2026-11-24T06:00:00Z",
+      "eligible_subscribers": null,
+      "qualified_watch_hours": null,
+      "eligible_shorts_views": null,
+      "ypp_stage": "not_started",
+      "review_status": null,
+      "payment_readiness": "not_started",
+      "currency": "USD",
+      "source": "no channel data connected",
+      "verification_status": "unavailable"
+    }
+  ]
+}

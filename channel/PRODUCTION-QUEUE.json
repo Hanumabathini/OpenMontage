@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fields": [
+    "project_id",
+    "scene_id",
+    "provider",
+    "model",
+    "settings_hash",
+    "target_duration",
+    "status",
+    "attempts",
+    "output_path",
+    "validation_status",
+    "rights_status",
+    "last_updated"
+  ],
+  "entries": []
+}

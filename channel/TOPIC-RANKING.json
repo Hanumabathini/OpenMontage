@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "collected_at": "2026-11-24T06:00:00Z",
+  "cycle": "2026-11-24-limited",
+  "scoring_note": "Provisional: verified_audience_demand (15) and channel_relative_outlier (15) are null because no compliant YouTube data source was available. Directive gates (85/75/60 of 100) cannot be applied; all candidates are 'additional research'.",
+  "report": "research/daily-reports/2026-11-24.md",
+  "topics": [
+    {
+      "rank": 1,
+      "title": "AI's Power Problem: Why Electricity, Not Chips, Now Limits AI",
+      "pillar": "AI infrastructure",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 13,
+        "hook_packaging": 9,
+        "advertiser_suitability": 9,
+        "originality": 7,
+        "evergreen": 5,
+        "production_feasibility": 4
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 62,
+      "status": "additional_research",
+      "proposed_runtime_min": 14,
+      "recommended": true
+    },
+    {
+      "rank": 2,
+      "title": "How AI Supercomputers Stay Cool: The 4,000-Watt Chip Problem",
+      "pillar": "AI infrastructure",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 12,
+        "hook_packaging": 8,
+        "advertiser_suitability": 9,
+        "originality": 7,
+        "evergreen": 5,
+        "production_feasibility": 5
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 61,
+      "status": "additional_research",
+      "proposed_runtime_min": 13,
+      "recommended": false
+    },
+    {
+      "rank": 3,
+      "title": "The Memory Wall: Why AI Is Running Out of Memory Chips (HBM)",
+      "pillar": "Semiconductor engineering",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 12,
+        "hook_packaging": 8,
+        "advertiser_suitability": 9,
+        "originality": 8,
+        "evergreen": 4,
+        "production_feasibility": 4
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 60,
+      "status": "additional_research",
+      "proposed_runtime_min": 13,
+      "recommended": false
+    },
+    {
+      "rank": 4,
+      "title": "Inside High-NA EUV: The Machine That Decides the Next Decade of Chips",
+      "pillar": "Semiconductor engineering",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 12,
+        "hook_packaging": 8,
+        "advertiser_suitability": 9,
+        "originality": 6,
+        "evergreen": 5,
+        "production_feasibility": 3
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 58,
+      "status": "additional_research",
+      "proposed_runtime_min": 14,
+      "recommended": false
+    },
+    {
+      "rank": 5,
+      "title": "Humanoid Robots: What's Actually Working in Factories (and What Isn't)",
+      "pillar": "Robotics and industrial automation",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 12,
+        "hook_packaging": 9,
+        "advertiser_suitability": 8,
+        "originality": 7,
+        "evergreen": 4,
+        "production_feasibility": 3
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 58,
+      "status": "additional_research",
+      "proposed_runtime_min": 13,
+      "recommended": false
+    },
+    {
+      "rank": 6,
+      "title": "Terafab: Can Tesla and SpaceX Really Build a Chip Fab?",
+      "pillar": "Semiconductor engineering",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 11,
+        "hook_packaging": 9,
+        "advertiser_suitability": 8,
+        "originality": 7,
+        "evergreen": 3,
+        "production_feasibility": 5
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 58,
+      "status": "additional_research",
+      "proposed_runtime_min": 12,
+      "recommended": false
+    },
+    {
+      "rank": 7,
+      "title": "Copper vs Light: Why AI Networks Are Turning to Photonics",
+      "pillar": "Future computing",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 11,
+        "hook_packaging": 7,
+        "advertiser_suitability": 8,
+        "originality": 9,
+        "evergreen": 4,
+        "production_feasibility": 3
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 57,
+      "status": "additional_research",
+      "proposed_runtime_min": 12,
+      "recommended": false
+    },
+    {
+      "rank": 8,
+      "title": "Made in America? Inside TSMC's Arizona Chip Factories",
+      "pillar": "Semiconductor engineering",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 11,
+        "hook_packaging": 8,
+        "advertiser_suitability": 8,
+        "originality": 6,
+        "evergreen": 4,
+        "production_feasibility": 4
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 56,
+      "status": "additional_research",
+      "proposed_runtime_min": 12,
+      "recommended": false
+    },
+    {
+      "rank": 9,
+      "title": "Quantum Computers That Run on Light",
+      "pillar": "Future computing",
+      "scores": {
+        "niche_relevance": 15,
+        "sustained_watch_potential": 9,
+        "hook_packaging": 7,
+        "advertiser_suitability": 7,
+        "originality": 7,
+        "evergreen": 3,
+        "production_feasibility": 3
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 51,
+      "status": "additional_research",
+      "proposed_runtime_min": 11,
+      "recommended": false
+    },
+    {
+      "rank": 10,
+      "title": "The New Chip Export Rules, Explained",
+      "pillar": "Semiconductor engineering",
+      "scores": {
+        "niche_relevance": 13,
+        "sustained_watch_potential": 10,
+        "hook_packaging": 8,
+        "advertiser_suitability": 6,
+        "originality": 6,
+        "evergreen": 3,
+        "production_feasibility": 4
+      },
+      "verified_audience_demand": null,
+      "channel_relative_outlier": null,
+      "provisional_total_of_70": 50,
+      "status": "additional_research",
+      "proposed_runtime_min": 10,
+      "recommended": false
+    }
+  ]
+}
