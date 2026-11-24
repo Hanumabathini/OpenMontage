@@ -346,3 +346,83 @@ def test_rejected_clip_reports_seed_and_log(fake_wangp, tmp_path):
     assert result.data["seed"] == 42
     assert Path(result.data["log_path"]).exists()
     assert Path(result.data["rejected_clip"]).exists()
+
+
+# ---------------------------------------------------------------- directive §25: config + one GPU job at a time
+
+
+def test_wangp_home_alias_and_auto_python(tmp_path, monkeypatch):
+    from tools.video._wangp_runner import resolve_wangp
+
+    root = tmp_path / "WanGP"
+    root.mkdir()
+    (root / "wgp.py").write_text("", encoding="utf-8")
+    exe = root / "env_venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+    monkeypatch.delenv("WANGP_DIR", raising=False)
+    monkeypatch.setenv("WANGP_HOME", str(root))
+    monkeypatch.setenv("WANGP_PYTHON", "auto")
+    wdir, python, reason = resolve_wangp()
+    assert wdir == root and python == str(exe) and reason == ""
+
+
+def test_wangp_disabled(fake_wangp, monkeypatch):
+    from tools.base_tool import ToolStatus
+    from tools.video._wangp_runner import resolve_wangp
+
+    fake_wangp()
+    monkeypatch.setenv("WANGP_ENABLED", "false")
+    assert resolve_wangp()[0] is None
+    assert "WANGP_ENABLED" in resolve_wangp()[2]
+    assert _tool().get_status() == ToolStatus.UNAVAILABLE
+
+
+def test_template_settings_are_base_of_job(fake_wangp, tmp_path, monkeypatch):
+    fake_wangp("moving")
+    template = tmp_path / "tpl.json"
+    template.write_text(json.dumps({"flow_shift": 7, "prompt": "OLD", "seed": 1, "image_start": "x.png",
+                                    "num_inference_steps": 99}), encoding="utf-8")
+    monkeypatch.setenv("WANGP_TEMPLATE", str(template))
+    result = _tool().execute({"prompt": "new", "output_path": str(tmp_path / "t.mp4"), "duration_seconds": 1})
+    assert result.success, result.error
+    job = json.loads((Path(result.data["log_path"]).parent / "job.json").read_text())
+    assert job["flow_shift"] == 7                # template value kept
+    assert job["prompt"] == "new"                # per-shot values win
+    assert job["num_inference_steps"] == 40
+    assert "image_start" not in job              # template media never leaks into a shot
+
+
+def test_timeout_env_default(fake_wangp, tmp_path, monkeypatch):
+    fake_wangp("sleep")
+    monkeypatch.setenv("WANGP_TIMEOUT_SECONDS", "2")
+    result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "e.mp4"), "duration_seconds": 1})
+    assert result.success is False and "timed out" in result.error
+
+
+def test_gpu_lock_blocks_second_job(fake_wangp, tmp_path):
+    from tools.video._wangp_runner import gpu_lock
+
+    root = fake_wangp("moving")
+    with gpu_lock(root, wait_s=1):
+        result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "l.mp4"), "duration_seconds": 1,
+                                  "lock_wait_seconds": 1})
+    assert result.success is False
+    assert "another WanGP job" in result.error
+    # lock released afterwards: the next job runs
+    ok = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "l2.mp4"), "duration_seconds": 1})
+    assert ok.success, ok.error
+
+
+def test_stale_gpu_lock_is_reclaimed(fake_wangp, tmp_path):
+    import os as _os
+    import time as _t
+
+    root = fake_wangp("moving")
+    lock = root / ".openmontage_gpu.lock"
+    lock.write_text("12345", encoding="utf-8")
+    old = _t.time() - 10 * 24 * 3600
+    _os.utime(lock, (old, old))
+    result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "s.mp4"), "duration_seconds": 1})
+    assert result.success, result.error
+    assert not lock.exists()

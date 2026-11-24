@@ -32,7 +32,11 @@ from tools.base_tool import (
 )
 from tools.video._wangp_runner import (
     OOM_PATTERN,
+    GpuBusyError,
     build_job,
+    default_timeout,
+    gpu_lock,
+    load_template,
     motion_score,
     probe_clip,
     resolve_wangp,
@@ -118,7 +122,9 @@ class WanGPVideo(BaseTool):
             "duration_seconds": {"type": "number", "default": 5, "description": "About 5 s is Wan's native clip length"},
             "seed": {"type": "integer"},
             "output_path": {"type": "string"},
-            "timeout_seconds": {"type": "integer", "default": 7200},
+            "timeout_seconds": {"type": "integer", "description": "Per-attempt limit; default WANGP_TIMEOUT_SECONDS or 7200"},
+            "lock_wait_seconds": {"type": "integer", "default": 21600,
+                                  "description": "How long to wait for another WanGP job to free the GPU"},
         },
     }
 
@@ -172,12 +178,28 @@ class WanGPVideo(BaseTool):
         seed = int(inputs["seed"]) if inputs.get("seed") is not None else random.randint(0, 2**31 - 1)
         output_path = Path(str(inputs.get("output_path") or f"wangp_video_{seed}.mp4"))
         work_root = output_path.parent / f".wangp_{output_path.stem}"
+        try:
+            template = load_template()
+        except (OSError, ValueError) as exc:
+            return ToolResult(success=False, error=f"Could not read WANGP_TEMPLATE: {exc}")
+        timeout_s = int(inputs.get("timeout_seconds") or default_timeout())
+        try:
+            with gpu_lock(wangp_dir, float(inputs.get("lock_wait_seconds") or 21600)):
+                return self._render(inputs, python, wangp_dir, template, image, operation, aspect, quality,
+                                    frames, seed, output_path, work_root, timeout_s, start)
+        except GpuBusyError as exc:
+            return ToolResult(success=False, error=str(exc), seed=seed,
+                              duration_seconds=round(time.time() - start, 2))
 
+    def _render(self, inputs, python, wangp_dir, template, image, operation, aspect, quality,
+                frames, seed, output_path, work_root, timeout_s, start) -> ToolResult:
+        """Run the fallback ladder while holding the GPU lock."""
         last_text = ""
         for rung, (preset_name, low_res) in enumerate(_ladder(quality)):
             preset = PRESETS[preset_name]
             resolution = RESOLUTIONS[aspect][1 if low_res else 0]
-            job = build_job(
+            job = dict(template)
+            job.update(build_job(
                 str(inputs["prompt"]),
                 str(inputs.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT),
                 model_type=preset["model_type"],
@@ -187,9 +209,9 @@ class WanGPVideo(BaseTool):
                 seed=seed,
                 guidance_scale=preset["guidance_scale"],
                 image_start=image,
-            )
+            ))
             work_dir = work_root / f"attempt_{rung + 1}"
-            clip, last_text = run_wangp(python, wangp_dir, job, work_dir, int(inputs.get("timeout_seconds") or 7200))
+            clip, last_text = run_wangp(python, wangp_dir, job, work_dir, timeout_s)
             log_path = str(work_dir / "wangp.log")
             if clip is None:
                 if OOM_PATTERN.search(last_text):

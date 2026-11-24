@@ -7,8 +7,14 @@ WanGP is run as its own process with its own Python environment:
 so OpenMontage never imports torch or WanGP code. Configuration comes from the
 environment (``.env`` is loaded by the tool registry):
 
-    WANGP_DIR     WanGP folder containing wgp.py (default: ~/WanGP)
-    WANGP_PYTHON  optional; otherwise env_uv / env_venv / venv / .venv / env is detected
+    WANGP_DIR             WanGP folder containing wgp.py (alias: WANGP_HOME; default ~/WanGP)
+    WANGP_PYTHON          optional, or "auto"; otherwise env_uv / env_venv / venv / .venv / env is detected
+    WANGP_ENABLED         set to false/0/no to switch the provider off
+    WANGP_TEMPLATE        optional settings JSON exported from the WanGP UI, used as the base of every job
+    WANGP_TIMEOUT_SECONDS default per-job timeout (7200)
+
+Only one GPU job runs at a time: a lock file in the WanGP folder serialises jobs
+from every OpenMontage process on the machine.
 """
 
 from __future__ import annotations
@@ -19,11 +25,22 @@ import re
 import shutil
 import signal
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 ENV_FOLDERS = ("env_uv", "env_venv", "venv", ".venv", "env")
 # Only genuine GPU memory exhaustion steps the fallback ladder; other CUDA errors are reported as-is.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LOCK_NAME = ".openmontage_gpu.lock"
+STALE_LOCK_SECONDS = 24 * 3600
+# Template keys that must never carry over between shots (per-shot text, seeds and media inputs).
+TEMPLATE_DROP_KEYS = {
+    "prompt", "negative_prompt", "seed", "image_start", "image_end", "image_refs", "image_guide",
+    "image_mask", "image_prompt_type", "video_source", "video_guide", "video_mask", "audio_guide",
+    "audio_guide2", "audio_source", "client_id", "state",
+}
 OOM_PATTERN = re.compile(r"out of memory|OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED", re.IGNORECASE)
 
 
@@ -35,14 +52,17 @@ def _env_python(env_dir: Path) -> Path:
 
 def resolve_wangp() -> tuple[Path | None, str | None, str]:
     """Return ``(wangp_dir, python, reason)``; ``reason`` is empty when usable."""
-    wangp_dir = Path(os.environ.get("WANGP_DIR") or Path.home() / "WanGP").expanduser()
+    if os.environ.get("WANGP_ENABLED", "").strip().lower() in {"false", "0", "no", "off"}:
+        return None, None, "WanGP is switched off (WANGP_ENABLED=false in .env)."
+    raw_dir = os.environ.get("WANGP_DIR") or os.environ.get("WANGP_HOME") or str(Path.home() / "WanGP")
+    wangp_dir = Path(raw_dir).expanduser()
     if not (wangp_dir / "wgp.py").is_file():
         return None, None, (
             f"WanGP not found: {wangp_dir / 'wgp.py'} does not exist. Install WanGP "
             "(https://github.com/deepbeepmeep/Wan2GP) and set WANGP_DIR in .env."
         )
-    python = os.environ.get("WANGP_PYTHON")
-    if python:
+    python = (os.environ.get("WANGP_PYTHON") or "").strip()
+    if python and python.lower() != "auto":
         if Path(python).is_file():
             return wangp_dir, python, ""
         found = shutil.which(python)
@@ -134,6 +154,61 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
         pass
+
+
+def default_timeout() -> int:
+    try:
+        return int(os.environ.get("WANGP_TIMEOUT_SECONDS") or 7200)
+    except ValueError:
+        return 7200
+
+
+def load_template() -> dict[str, Any]:
+    """Settings exported from the WanGP UI (WANGP_TEMPLATE), minus per-shot keys. Empty if unset."""
+    raw = (os.environ.get("WANGP_TEMPLATE") or "").strip()
+    if not raw:
+        return {}
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"WANGP_TEMPLATE must be a JSON object: {path}")
+    return {k: v for k, v in data.items() if k not in TEMPLATE_DROP_KEYS}
+
+
+class GpuBusyError(TimeoutError):
+    """Another WanGP job held the GPU lock for longer than the caller would wait."""
+
+
+@contextmanager
+def gpu_lock(wangp_dir: Path, wait_s: float, stale_s: float = STALE_LOCK_SECONDS) -> Iterator[None]:
+    """Hold the machine-wide WanGP GPU lock; raise TimeoutError if another job keeps it past wait_s."""
+    lock = Path(wangp_dir) / LOCK_NAME
+    deadline = time.time() + max(wait_s, 0)
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(f"{os.getpid()} {time.strftime('%Y-%m-%dT%H:%M:%S')}\n")
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > stale_s:
+                    lock.unlink(missing_ok=True)  # abandoned by a crashed run
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.time() >= deadline:
+                raise GpuBusyError(
+                    f"another WanGP job is using the GPU (lock {lock}). Wait for it to finish, "
+                    "or delete the lock file if no WanGP job is running."
+                ) from None
+            time.sleep(min(5.0, max(deadline - time.time(), 0.1)))
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 def probe_clip(path: Path) -> dict[str, Any]:

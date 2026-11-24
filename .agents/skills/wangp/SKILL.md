@@ -18,6 +18,15 @@ WANGP_DIR=C:\Users\<you>\WanGP          # folder that contains wgp.py
 WANGP_PYTHON=                           # optional; auto-detects env_uv, env_venv, venv, .venv, env
 ```
 
+Optional settings: `WANGP_ENABLED=false` switches it off, `WANGP_HOME` is an alias of `WANGP_DIR`,
+`WANGP_TEMPLATE` points to a settings JSON exported from the WanGP UI (used as the base of every
+job; per-shot prompt, seed and media are never inherited), and `WANGP_TIMEOUT_SECONDS` sets the
+per-attempt limit (default 7200).
+
+**One GPU job at a time:** a lock file (`.openmontage_gpu.lock` in the WanGP folder) serialises all
+WanGP jobs on the machine. A second call waits up to `lock_wait_seconds` (default 6 h) and then
+fails with "another WanGP job is using the GPU". Plan batches sequentially.
+
 `get_status()` is AVAILABLE only when `WANGP_DIR/wgp.py` and a Python are found.
 The first render downloads the model weights (about 10–20 GB) and tunes kernels,
 so the first clip can take an hour. Later clips are much faster.
