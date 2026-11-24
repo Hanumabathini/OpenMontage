@@ -50,6 +50,7 @@ quality require live validation in the intended environment.
 | 12 | **pay-as-you-go** | HeyGen | Avatar videos, multi-model video gateway |
 | 13 | **pay-as-you-go** | Suno | Full song generation with vocals and lyrics |
 | 14 | **$0 + GPU** | Local video gen | WAN 2.1, Hunyuan, CogVideo, LTX — free, offline |
+| 14b | **$0 + GPU (8 GB+)** | WanGP (`wangp_video`) | Wan 2.2 TI2V 5B through a local WanGP install — free, offline, fits 8 GB laptop GPUs |
 | 15 | **$0 + GPU** | Local Diffusion | Stable Diffusion images — free, offline |
 
 ### Environment Variable Summary
@@ -100,6 +101,8 @@ TENCENT_TOKENHUB_API_KEY=    # Tencent Hunyuan cloud video via TokenHub API
 # LOCAL (no keys needed — just GPU + install)
 VIDEO_GEN_LOCAL_ENABLED=     # Set to "true" for local video gen
 VIDEO_GEN_LOCAL_MODEL=       # wan2.2-ti2v-5b, wan2.1-1.3b, wan2.1-14b, hunyuan-1.5, ltx2-local, cogvideo-5b
+WANGP_DIR=                   # WanGP folder containing wgp.py (wangp_video tool); default ~/WanGP
+WANGP_PYTHON=                # optional WanGP env python; auto-detected otherwise
 
 # COMFYUI (optional overrides; localhost:8188 is the default)
 COMFYUI_SERVER_URL=          # Local ComfyUI server for shared workflows

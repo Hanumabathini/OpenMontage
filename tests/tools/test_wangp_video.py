@@ -277,3 +277,14 @@ def test_registry_discovers_tool():
     assert tool is not None
     assert tool.capability == "video_generation"
     assert tool.provider == "wangp"
+
+
+# ---------------------------------------------------------------- Task 3: agent skill
+
+
+def test_agent_skill_exists():
+    skill = Path(__file__).resolve().parents[2] / ".agents" / "skills" / "wangp" / "SKILL.md"
+    assert skill.is_file()
+    text = skill.read_text(encoding="utf-8")
+    assert "WANGP_DIR" in text
+    assert text.startswith("---\nname: wangp\n")
