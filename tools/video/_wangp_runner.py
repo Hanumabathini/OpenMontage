@@ -16,12 +16,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
 
 ENV_FOLDERS = ("env_uv", "env_venv", "venv", ".venv", "env")
-OOM_PATTERN = re.compile(r"out of memory|CUDA error|OutOfMemory", re.IGNORECASE)
+# Only genuine GPU memory exhaustion steps the fallback ladder; other CUDA errors are reported as-is.
+OOM_PATTERN = re.compile(r"out of memory|OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED", re.IGNORECASE)
 
 
 def _env_python(env_dir: Path) -> Path:
@@ -40,9 +43,12 @@ def resolve_wangp() -> tuple[Path | None, str | None, str]:
         )
     python = os.environ.get("WANGP_PYTHON")
     if python:
-        if not Path(python).is_file():
-            return None, None, f"WANGP_PYTHON points to a missing file: {python}"
-        return wangp_dir, python, ""
+        if Path(python).is_file():
+            return wangp_dir, python, ""
+        found = shutil.which(python)
+        if found:
+            return wangp_dir, found, ""
+        return None, None, f"WANGP_PYTHON is neither a file nor a command on PATH: {python}"
     for name in ENV_FOLDERS:
         exe = _env_python(wangp_dir / name)
         if exe.is_file():
@@ -96,17 +102,38 @@ def run_wangp(python: str, wangp_dir: Path, job: dict, work_dir: Path, timeout_s
     log_path = work_dir / "wangp.log"
     before = {p.resolve() for p in work_dir.glob("*.mp4")}
     cmd = [python, "wgp.py", "--process", str(job_path), "--output-dir", str(work_dir)]
-    try:
-        with open(log_path, "w", encoding="utf-8", errors="replace") as log:
-            subprocess.run(cmd, cwd=str(wangp_dir), stdout=log, stderr=subprocess.STDOUT,
-                           timeout=timeout_s, check=False)
-    except subprocess.TimeoutExpired:
-        with open(log_path, "a", encoding="utf-8") as log:
-            log.write(f"\n[wangp_video] timed out after {timeout_s}s\n")
+    with open(log_path, "w", encoding="utf-8", errors="replace") as log:
+        if os.name == "nt":
+            proc = subprocess.Popen(cmd, cwd=str(wangp_dir), stdout=log, stderr=subprocess.STDOUT,
+                                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            proc = subprocess.Popen(cmd, cwd=str(wangp_dir), stdout=log, stderr=subprocess.STDOUT,
+                                    start_new_session=True)
+        try:
+            proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            _kill_tree(proc)
+            log.write(f"\n[wangp_video] timed out after {timeout_s}s; WanGP process tree stopped\n")
     text = log_path.read_text(encoding="utf-8", errors="replace")
     new = [p for p in work_dir.glob("*.mp4") if p.resolve() not in before]
     clip = max(new, key=lambda p: p.stat().st_mtime) if new else None
     return clip, text
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Stop WanGP and its children (a Windows venv python.exe is a launcher with a child)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, check=False, timeout=60)
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        proc.kill()
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def probe_clip(path: Path) -> dict[str, Any]:

@@ -51,6 +51,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "draft": {"model_type": "ti2v_2_2_fastwan", "steps": 3, "guidance_scale": 1, "seconds_per_clip": 120},
 }
 RESOLUTIONS = {"16:9": ("1280x720", "960x544"), "9:16": ("720x1280", "544x960")}
+MAX_SECONDS = 10.0
 MIN_MOTION = 0.5
 MAX_FROZEN = 0.5
 
@@ -73,7 +74,7 @@ class WanGPVideo(BaseTool):
     provider = "wangp"
     stability = ToolStability.EXPERIMENTAL
     execution_mode = ExecutionMode.SYNC
-    determinism = Determinism.STOCHASTIC
+    determinism = Determinism.SEEDED  # same seed + settings reproduce the clip, so pinned-seed calls can be cached
     runtime = ToolRuntime.LOCAL_GPU
 
     install_instructions = (
@@ -123,7 +124,8 @@ class WanGPVideo(BaseTool):
 
     resource_profile = ResourceProfile(cpu_cores=4, ram_mb=24000, vram_mb=6000, disk_mb=30000, network_required=False)
     retry_policy = RetryPolicy(max_retries=0)
-    idempotency_key_fields = ["prompt", "operation", "aspect", "quality", "seed", "duration_seconds", "reference_image_path"]
+    idempotency_key_fields = ["prompt", "negative_prompt", "operation", "aspect", "quality", "seed",
+                              "duration_seconds", "reference_image_path"]
     side_effects = ["writes video file to output_path", "WanGP may download model weights on first use"]
     user_visible_verification = [
         "Watch the clip: the subject and camera should move as the prompt describes",
@@ -161,7 +163,11 @@ class WanGPVideo(BaseTool):
         quality = inputs.get("quality", "full")
         if aspect not in RESOLUTIONS or quality not in PRESETS:
             return ToolResult(success=False, error=f"aspect must be one of {sorted(RESOLUTIONS)}; quality one of {sorted(PRESETS)}")
-        seconds = float(inputs.get("duration_seconds") or 5)
+        seconds = float(inputs["duration_seconds"]) if inputs.get("duration_seconds") is not None else 5.0
+        if not 0 < seconds <= MAX_SECONDS:
+            return ToolResult(success=False, error=(
+                f"duration_seconds must be between 0 and {MAX_SECONDS:g} (got {seconds:g}). Wan clips are about 5 s; "
+                "plan longer moments as several shots."))
         frames = snap_frames(round(seconds * NATIVE_FPS) + 1)
         seed = int(inputs["seed"]) if inputs.get("seed") is not None else random.randint(0, 2**31 - 1)
         output_path = Path(str(inputs.get("output_path") or f"wangp_video_{seed}.mp4"))
@@ -191,7 +197,10 @@ class WanGPVideo(BaseTool):
                 return ToolResult(
                     success=False,
                     error=f"WanGP produced no video (log: {log_path}). Last log lines:\n{_log_tail(last_text)}",
+                    data={"rung": rung, "model_type": preset["model_type"], "resolution": resolution,
+                          "seed": seed, "log_path": log_path},
                     duration_seconds=round(time.time() - start, 2),
+                    seed=seed,
                 )
 
             info = probe_clip(clip)
@@ -203,7 +212,11 @@ class WanGPVideo(BaseTool):
                     error=(f"WanGP clip rejected: motion score {score} (min {MIN_MOTION}), frozen share {frozen}, "
                            f"duration {info['duration']}s (expected ~{expected:.1f}s). Clip kept at {clip}. "
                            "Retry with a new seed or a prompt with one clear action."),
+                    data={"rung": rung, "model_type": preset["model_type"], "resolution": resolution,
+                          "seed": seed, "motion_score": score, "frozen_fraction": frozen,
+                          "duration": info["duration"], "log_path": log_path, "rejected_clip": str(clip)},
                     duration_seconds=round(time.time() - start, 2),
+                    seed=seed,
                 )
 
             output_path.parent.mkdir(parents=True, exist_ok=True)

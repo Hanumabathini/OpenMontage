@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import textwrap
@@ -44,6 +45,11 @@ FAKE_WGP = textwrap.dedent(
             write("testsrc2")
         else:
             print("torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB")
+    elif MODE == "cuda":
+        print("RuntimeError: CUDA error: no kernel image is available for execution on the device")
+    elif MODE == "sleep":
+        import time
+        time.sleep(60)
     # MODE == "none": print only, produce nothing
     '''
 )
@@ -288,3 +294,55 @@ def test_agent_skill_exists():
     text = skill.read_text(encoding="utf-8")
     assert "WANGP_DIR" in text
     assert text.startswith("---\nname: wangp\n")
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+def test_non_oom_cuda_error_does_not_step_ladder(fake_wangp, tmp_path):
+    fake_wangp("cuda")
+    result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "c.mp4"), "duration_seconds": 1})
+    assert result.success is False
+    assert "no kernel image" in result.error
+    assert result.data["rung"] == 0
+    assert not (tmp_path / ".wangp_c" / "attempt_2").exists()
+
+
+def test_timeout_stops_wangp(fake_wangp, tmp_path):
+    fake_wangp("sleep")
+    import time as _t
+
+    t0 = _t.time()
+    result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "t.mp4"),
+                              "duration_seconds": 1, "timeout_seconds": 2})
+    assert _t.time() - t0 < 30
+    assert result.success is False
+    assert "timed out" in result.error
+
+
+@pytest.mark.parametrize("seconds", [0, -1, 30])
+def test_duration_validated(fake_wangp, tmp_path, seconds):
+    fake_wangp("moving")
+    result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "d.mp4"), "duration_seconds": seconds})
+    assert result.success is False
+    assert "duration_seconds" in result.error
+
+
+def test_wangp_python_command_on_path(fake_wangp, monkeypatch):
+    from tools.video._wangp_runner import resolve_wangp
+
+    fake_wangp()
+    monkeypatch.setenv("WANGP_PYTHON", Path(sys.executable).name)
+    monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
+    _, python, reason = resolve_wangp()
+    assert reason == ""
+    assert python and Path(python).is_file()
+
+
+def test_rejected_clip_reports_seed_and_log(fake_wangp, tmp_path):
+    fake_wangp("static")
+    result = _tool().execute({"prompt": "x", "output_path": str(tmp_path / "r.mp4"), "duration_seconds": 1, "seed": 42})
+    assert result.success is False
+    assert result.data["seed"] == 42
+    assert Path(result.data["log_path"]).exists()
+    assert Path(result.data["rejected_clip"]).exists()
